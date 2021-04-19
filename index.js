@@ -110,6 +110,16 @@ client.connect(err => {
       })
   })
   
+  app.patch('/updateStatus/:id', (req, res) => {
+      ordersCollection.updateOne({_id: ObjectId(req.params.id)},
+      {
+          $set: {state: req.body.status}
+      })
+      .then(result => {
+          res.send(result.modifiedCount > 0);
+      })
+  })
+  
 });
 
 app.get('/', (req,res) => {
