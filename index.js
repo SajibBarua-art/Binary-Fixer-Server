@@ -19,54 +19,73 @@ client.connect(err => {
   const ordersCollection = client.db("binaryFixer").collection("orders");
   const adminCollection = client.db("binaryFixer").collection("adminEmail");
 
-  app.post('/addService', (req, res) => {
-      const newService = req.body;
-      console.log('adding new service: ', newService)
-      serviceCollection.insertOne(newService)
-      .then(result => {
-          console.log('inserted count', result.insertedCount);
-          res.send(result.insertedCount > 0)
-      })
-  })
+  app.post('/addService', async (req, res) => {
+    const newService = req.body;
+    console.log('adding new service: ', newService);
   
-  app.get('/services', (req, res) => {
-    serviceCollection.find({})
-    .toArray((err, documents) => {
-    	res.send(documents);
-    })
-  })
+    try {
+      await serviceCollection.insertOne(newService);
+      res.send(true);
+    } catch (error) {
+      console.error(error);
+      res.send(false);
+    }
+  });
   
-  app.post('/addTestimonial', (req, res) => {
-      const newTestimonial = req.body;
-      console.log('adding new Testimonial: ', newTestimonial)
-      testimonialCollection.insertOne(newTestimonial)
-      .then(result => {
-          console.log('inserted count', result.insertedCount);
-          res.send(result.insertedCount > 0)
-      })
-  })
+  app.get('/services', async (req, res) => {
+    try {
+      const documents = await serviceCollection.find({}).toArray();
+      res.send(documents);
+    } catch (error) {
+      console.error(error);
+      res.status(500).send('Error retrieving services');
+    }
+  });
   
-  app.get('/testimonials', (req, res) => {
-    testimonialCollection.find({})
-    .toArray((err, documents) => {
-    	res.send(documents);
-    })
-  })
+  app.post('/addTestimonial', async (req, res) => {
+    const newTestimonial = req.body;
+    console.log('adding new Testimonial: ', newTestimonial);
   
-  app.get('/order/:id', (req, res) => {
-        serviceCollection.find({_id: ObjectId(req.params.id)})
-        .toArray( (err, documents) => {
-            res.send(documents[0]);
-        })
-    })
-  
-  app.post('/addOrder', (req, res) => {
-    const order = req.body;
-    ordersCollection.insertOne(order)
-    .then(result => {
+    try {
+      const result = await testimonialCollection.insertOne(newTestimonial);
       res.send(result.insertedCount > 0);
-    })
-  })
+    } catch (error) {
+      console.error(error);
+      res.status(500).send('Error adding testimonial');
+    }
+  });
+  
+  app.get('/testimonials', async (req, res) => {
+    try {
+      const documents = await testimonialCollection.find({}).toArray();
+      res.send(documents);
+    } catch (error) {
+      console.error(error);
+      res.status(500).send('Error retrieving testimonials');
+    }
+  });
+  
+  app.get('/order/:id', async (req, res) => {
+    try {
+      const document = await serviceCollection.findOne({ _id: ObjectId(req.params.id) });
+      res.send(document);
+    } catch (error) {
+      console.error(error);
+      res.status(500).send('Error retrieving order');
+    }
+  });
+  
+  app.post('/addOrder', async (req, res) => {
+    const order = req.body;
+  
+    try {
+      const result = await ordersCollection.insertOne(order);
+      res.send(result.insertedCount > 0);
+    } catch (error) {
+      console.error(error);
+      res.status(500).send('Error adding order');
+    }
+  });  
     
     app.get('/orders/:email', (req, res) => {
         adminCollection.find({ email:req.params.email })
@@ -85,41 +104,71 @@ client.connect(err => {
         })
     })
   
-  app.get('/admin/:email', (req, res) => {
-  	adminCollection.find({ email:req.params.email })
-  	.toArray( (err, adminData) => {
-  		res.send(adminData);
-  	})
-  })
-  
-  app.post('/makeAdmin', (req, res) => {
+    app.get('/orders/:email', async (req, res) => {
+      try {
+        const adminData = await adminCollection.find({ email: req.params.email }).toArray();
+        if (adminData.length === 0) {
+          const orders = await ordersCollection.find({ email: req.params.email }).toArray();
+          res.send(orders);
+        } else {
+          const orders = await ordersCollection.find({}).toArray();
+          res.send(orders);
+        }
+      } catch (error) {
+        console.error(error);
+        res.status(500).send('Error retrieving orders');
+      }
+    });
+    
+    app.get('/admin/:email', async (req, res) => {
+      try {
+        const adminData = await adminCollection.find({ email: req.params.email }).toArray();
+        res.send(adminData);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send('Error retrieving admin data');
+      }
+    });
+    
+    app.post('/makeAdmin', async (req, res) => {
       const newAdmin = req.body;
-      console.log('adding new Admin: ', newAdmin)
-      adminCollection.insertOne(newAdmin)
-      .then(result => {
-          console.log('inserted count', result.insertedCount);
-          res.send(result.insertedCount > 0)
-      })
-  })
-  
-  app.delete('/delete/service/:id', (req, res) => {
+      console.log('adding new Admin: ', newAdmin);
+    
+      try {
+        const result = await adminCollection.insertOne(newAdmin);
+        res.send(result.insertedCount > 0);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send('Error adding admin');
+      }
+    });
+    
+    app.delete('/delete/service/:id', async (req, res) => {
       const id = ObjectId(req.params.id);
-      serviceCollection.deleteOne({_id: id})
-      .then(result => {
-      	res.send(result.deletedCount > 0);
-      })
-  })
-  
-  app.patch('/updateStatus/:id', (req, res) => {
-      ordersCollection.updateOne({_id: ObjectId(req.params.id)},
-      {
-          $set: {state: req.body.status}
-      })
-      .then(result => {
-          res.send(result.modifiedCount > 0);
-      })
-  })
-  
+    
+      try {
+        const result = await serviceCollection.deleteOne({ _id: id });
+        res.send(result.deletedCount > 0);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send('Error deleting service');
+      }
+    });
+    
+    app.patch('/updateStatus/:id', async (req, res) => {
+      const id = ObjectId(req.params.id);
+    
+      try {
+        const result = await ordersCollection.updateOne(
+          { _id: id },
+          { $set: { state: req.body.status } }
+        );
+        res.send(result.modifiedCount > 0);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send('Error updating order status');
+      }
+    });
 });
 
 app.get('/', (req,res) => {
