@@ -6,10 +6,10 @@ const ObjectId = require('mongodb').ObjectID;
 require("dotenv").config();
 
 const app = express();
-app.use(bodyParser.json());
+app.use(express.json());
 app.use(cors());
 
-const port = process.env.PORT || 5005;
+const port = process.env.PORT || 5000;
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.ykirh.mongodb.net/${process.env.DB_NAME}?retryWrites=true&w=majority`;
 const options = {
@@ -17,201 +17,217 @@ const options = {
   useUnifiedTopology: true,
 };
 
-const connectToMongoDB = async () => {
+const connectToDatabase = async () => {
+  const client = await MongoClient.connect(uri, options);
+  return client;
+};
+
+// Middleware to handle MongoDB connections
+const withDatabase = async (req, res, next) => {
   try {
-    const client = await MongoClient.connect(uri, options);
-
-    const db = client.db("binaryFixer");
-    const serviceCollection = db.collection("services");
-    const testimonialCollection = db.collection("testimonials");
-    const ordersCollection = db.collection("orders");
-    const adminCollection = db.collection("adminEmail");
-
-    return {
-      serviceCollection,
-      testimonialCollection,
-      ordersCollection,
-      adminCollection,
-    };
+    const client = await connectToDatabase();
+    req.databaseClient = client;
+    next();
   } catch (error) {
-    console.error('Failed to connect to MongoDB:', error);
-    throw new Error('Failed to connect to MongoDB');
+    console.error('Error connecting to the database:', error);
+    res.status(500).send('Internal Server Error');
   }
 };
 
-let serviceCollection, testimonialCollection, ordersCollection, adminCollection;
+// Root route
+app.get('/', (req, res) => {
+  res.send('App is Working');
+});
 
-(async () => {
+app.post('/addService', withDatabase, async (req, res) => {
   try {
-    const dbCollections = await connectToMongoDB();
+    const serviceCollection = req.databaseClient.db('binaryFixer').collection('services');
+    const newService = req.body;
 
-    // Use the collections here
-    serviceCollection = dbCollections.serviceCollection;
-    testimonialCollection = dbCollections.testimonialCollection;
-    ordersCollection = dbCollections.ordersCollection;
-    adminCollection = dbCollections.adminCollection;
-  } catch (error) {
-    console.error('Error:', error);
-  }
-})();
+    console.log('Adding new service:', newService);
 
-app.post('/addService', async (req, res) => {
-  const newService = req.body;
-  console.log('adding new service: ', newService);
-
-  try {
     await serviceCollection.insertOne(newService);
     res.send(true);
   } catch (error) {
-    console.error(error);
-    res.status(500).send('Error adding service');
+    console.error('Error adding service:', error);
+    res.status(500).send('Internal Server Error');
+  } finally {
+    // Close the MongoDB connection in the 'finally' block to ensure it's always closed
+    req.databaseClient.close();
   }
 });
-  
-app.get('/services', async (req, res) => {
+
+// Get services
+app.get('/services', withDatabase, async (req, res) => {
   try {
+    const serviceCollection = req.databaseClient.db('binaryFixer').collection('services');
     const documents = await serviceCollection.find({}).toArray();
-    res.send(documents);
+    res.json(documents);
   } catch (error) {
-    console.error(error);
-    res.status(500).send('Error retrieving services');
+    console.error('Error retrieving services:', error);
+    res.status(500).send('Internal Server Error');
+  } finally {
+    // Close the MongoDB connection in the 'finally' block to ensure it's always closed
+    req.databaseClient.close();
   }
 });
 
-app.post('/addTestimonial', async (req, res) => {
-  const newTestimonial = req.body;
-  console.log('adding new Testimonial: ', newTestimonial);
-
+// Add testimonial
+app.post('/addTestimonial', withDatabase, async (req, res) => {
   try {
+    const testimonialCollection = req.databaseClient.db('binaryFixer').collection('testimonials');
+    const newTestimonial = req.body;
+
+    console.log('Adding new Testimonial:', newTestimonial);
+
     const result = await testimonialCollection.insertOne(newTestimonial);
-    res.send(result.insertedCount > 0);
-  } catch (error) {
-    console.error(error);
-    res.status(500).send('Error adding testimonial');
-}
-});
 
-app.get('/testimonials', async (req, res) => {
-try {
-  const documents = await testimonialCollection.find({}).toArray();
-  res.send(documents);
-} catch (error) {
-  console.error(error);
-  res.status(500).send('Error retrieving testimonials');
-}
-});
-
-app.get('/order/:id', async (req, res) => {
-try {
-  const document = await serviceCollection.findOne({ _id: ObjectId(req.params.id) });
-  res.send(document);
-} catch (error) {
-  console.error(error);
-  res.status(500).send('Error retrieving order');
-}
-});
-
-app.post('/addOrder', async (req, res) => {
-const order = req.body;
-
-try {
-  const result = await ordersCollection.insertOne(order);
-  res.send(result.insertedCount > 0);
-} catch (error) {
-  console.error(error);
-  res.status(500).send('Error adding order');
-}
-});  
-
-app.get('/orders/:email', (req, res) => {
-    adminCollection.find({ email:req.params.email })
-    .toArray( (err, adminData) => {
-        if (adminData.length === 0) {
-          ordersCollection.find( {email: req.params.email} )
-          .toArray( (err, orders) => {
-            res.send(orders);
-          })
-        } else {
-          ordersCollection.find({})
-          .toArray( (err, orders) => {
-            res.send(orders);	
-          })
-        }
-    })
-})
-
-app.get('/orders/:email', async (req, res) => {
-  try {
-    const adminData = await adminCollection.find({ email: req.params.email }).toArray();
-    if (adminData.length === 0) {
-      const orders = await ordersCollection.find({ email: req.params.email }).toArray();
-      res.send(orders);
+    if (result.insertedCount > 0) {
+      res.status(201).send('Testimonial added successfully');
     } else {
-      const orders = await ordersCollection.find({}).toArray();
-      res.send(orders);
+      res.status(500).send('Failed to add testimonial');
     }
   } catch (error) {
-    console.error(error);
-    res.status(500).send('Error retrieving orders');
+    console.error('Error adding testimonial:', error);
+    res.status(500).send('Internal Server Error');
+  } finally {
+    // Close the MongoDB connection in the 'finally' block to ensure it's always closed
+    req.databaseClient.close();
   }
 });
 
-app.get('/admin/:email', async (req, res) => {
+// Get testimonials
+app.get('/testimonials', withDatabase, async (req, res) => {
   try {
+    const testimonialCollection = req.databaseClient.db('binaryFixer').collection('testimonials');
+    const documents = await testimonialCollection.find({}).toArray();
+    res.json(documents);
+  } catch (error) {
+    console.error('Error retrieving testimonials:', error);
+    res.status(500).send('Internal Server Error');
+  } finally {
+    // Close the MongoDB connection in the 'finally' block to ensure it's always closed
+    req.databaseClient.close();
+  }
+});
+
+// Get order by ID
+app.get('/order/:id', withDatabase, async (req, res) => {
+  try {
+    const ordersCollection = req.databaseClient.db('binaryFixer').collection('orders');
+    const document = await ordersCollection.findOne({ _id: ObjectId(req.params.id) });
+    res.send(document);
+  } catch (error) {
+    console.error('Error retrieving order:', error);
+    res.status(500).send('Internal Server Error');
+  } finally {
+    // Close the MongoDB connection in the 'finally' block to ensure it's always closed
+    req.databaseClient.close();
+  }
+});
+
+// Add order
+app.post('/addOrder', withDatabase, async (req, res) => {
+  const order = req.body;
+
+  try {
+    const ordersCollection = req.databaseClient.db('binaryFixer').collection('orders');
+    const result = await ordersCollection.insertOne(order);
+    res.send(result.insertedCount > 0);
+  } catch (error) {
+    console.error('Error adding order:', error);
+    res.status(500).send('Internal Server Error');
+  } finally {
+    // Close the MongoDB connection in the 'finally' block to ensure it's always closed
+    req.databaseClient.close();
+  }
+});
+
+// Get orders by email
+app.get('/orders/:email', withDatabase, async (req, res) => {
+  try {
+    const adminCollection = req.databaseClient.db('binaryFixer').collection('adminEmail');
+    const adminData = await adminCollection.find({ email: req.params.email }).toArray();
+    const ordersCollection = req.databaseClient.db('binaryFixer').collection('orders');
+    const ordersData = adminData.length === 0 ? ordersCollection.find({ email: req.params.email }) : ordersCollection.find({});
+    const orders = await ordersData.toArray();
+    res.json(orders);
+  } catch (error) {
+    console.error('Error retrieving orders:', error);
+    res.status(500).send('Internal Server Error');
+  } finally {
+    // Close the MongoDB connection in the 'finally' block to ensure it's always closed
+    req.databaseClient && req.databaseClient.close();
+  }
+});
+
+// Get admin data by email
+app.get('/admin/:email', withDatabase, async (req, res) => {
+  try {
+    const adminCollection = req.databaseClient.db('binaryFixer').collection('adminEmail');
     const adminData = await adminCollection.find({ email: req.params.email }).toArray();
     res.send(adminData);
   } catch (error) {
-    console.error(error);
-    res.status(500).send('Error retrieving admin data');
+    console.error('Error retrieving admin data:', error);
+    res.status(500).send('Internal Server Error');
+  } finally {
+    // Close the MongoDB connection in the 'finally' block to ensure it's always closed
+    req.databaseClient && req.databaseClient.close();
   }
 });
 
-app.post('/makeAdmin', async (req, res) => {
+// Add new admin
+app.post('/makeAdmin', withDatabase, async (req, res) => {
   const newAdmin = req.body;
-  console.log('adding new Admin: ', newAdmin);
+  console.log('Adding new Admin:', newAdmin);
 
   try {
+    const adminCollection = req.databaseClient.db('binaryFixer').collection('adminEmail');
     const result = await adminCollection.insertOne(newAdmin);
     res.send(result.insertedCount > 0);
   } catch (error) {
-    console.error(error);
-    res.status(500).send('Error adding admin');
+    console.error('Error adding admin:', error);
+    res.status(500).send('Internal Server Error');
+  } finally {
+    // Close the MongoDB connection in the 'finally' block to ensure it's always closed
+    req.databaseClient && req.databaseClient.close();
   }
 });
 
-app.delete('/delete/service/:id', async (req, res) => {
+// Delete service by ID
+app.delete('/delete/service/:id', withDatabase, async (req, res) => {
   const id = ObjectId(req.params.id);
 
   try {
+    const serviceCollection = req.databaseClient.db('binaryFixer').collection('services');
     const result = await serviceCollection.deleteOne({ _id: id });
     res.send(result.deletedCount > 0);
   } catch (error) {
-    console.error(error);
-    res.status(500).send('Error deleting service');
+    console.error('Error deleting service:', error);
+    res.status(500).send('Internal Server Error');
+  } finally {
+    // Close the MongoDB connection in the 'finally' block to ensure it's always closed
+    req.databaseClient && req.databaseClient.close();
   }
 });
 
-app.patch('/updateStatus/:id', async (req, res) => {
+// Update order status by ID
+app.patch('/updateStatus/:id', withDatabase, async (req, res) => {
   const id = ObjectId(req.params.id);
 
   try {
+    const ordersCollection = req.databaseClient.db('binaryFixer').collection('orders');
     const result = await ordersCollection.updateOne(
       { _id: id },
       { $set: { state: req.body.status } }
     );
     res.send(result.modifiedCount > 0);
   } catch (error) {
-    console.error(error);
-    res.status(500).send('Error updating order status');
-  }
-});
-
-app.get('/', (req, res) => {
-  // Check if the database is connected
-  if (serviceCollection) {
-    res.send("Database is working");
-  } else {
-    res.status(500).send("Database connection failed");
+    console.error('Error updating order status:', error);
+    res.status(500).send('Internal Server Error');
+  } finally {
+    // Close the MongoDB connection in the 'finally' block to ensure it's always closed
+    req.databaseClient && req.databaseClient.close();
   }
 });
 
